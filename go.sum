@@ -1,0 +1,4 @@
+github.com/goccy/go-perl v0.1.0 h1:t6FASI41ldfN4kNk0k0DFZES74V0w+2+j/4YGET+d74=
+github.com/goccy/go-perl v0.1.0/go.mod h1:kjBOorjYfLb/CfRnkPdVlaQx6m2nFEqiNLwd3iDaubY=
+github.com/goccy/perlwasm2go v0.1.0 h1:poP2J/OH6UqJK7rQG565Ce0tFpfeIc/WQhcZvCpWRec=
+github.com/goccy/perlwasm2go v0.1.0/go.mod h1:IVQQlYJJCQpJNZEyZUg2xh2Wq1xpSQj09U+gtpnjO6A=

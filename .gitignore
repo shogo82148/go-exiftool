@@ -1,0 +1,7 @@
+# Compiled binaries
+/exiftool-spike
+/cmd/exiftool-spike/exiftool-spike
+
+# Test / coverage output
+*.out
+*.test

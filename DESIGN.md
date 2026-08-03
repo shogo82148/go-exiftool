@@ -46,8 +46,7 @@ version).
 package exiftool
 
 // New boots one Perl interpreter and loads Image::ExifTool (~420 ms). Reuse the
-// returned *ExifTool across many Extract calls. Safe for concurrent use: calls
-// are serialized on one interpreter (see Concurrency).
+// returned *ExifTool across many Extract calls (see Concurrency).
 func New(opts ...Option) (*ExifTool, error)
 
 // Close finalizes the interpreter and removes the extracted lib temp dir.
@@ -153,12 +152,19 @@ Go reads `EvalResult.Stdout`, `json.Unmarshal`s into `Fields`.
   `Fields` is still returned.
 - A Perl `die` inside a call surfaces as a Go error, never a panic.
 
-## Concurrency (v1: serialized)
+## Concurrency
 
-`*ExifTool` owns one interpreter; `Extract` takes a `sync.Mutex`, so concurrent
-callers are serialized safely (decision). For real parallelism, create multiple
-`*ExifTool` instances (each ~one interpreter's memory). A managed
-`exiftool.Pool` of N interpreters is a documented follow-up, not in v1.
+`*ExifTool` owns one interpreter. **No wrapper-level mutex is added** — go-perl's
+`Module.invoke` already guards every `Eval` with a per-interpreter
+`sync.Mutex`, and each `Extract` is a single self-contained `Eval` (build `$et`,
+`ExtractInfo`, encode JSON), so concurrent `Extract` calls on one `*ExifTool`
+serialize safely at the go-perl layer with no shared-state interleaving. Adding
+our own lock would only duplicate that.
+
+This gives no real parallelism on a single instance (calls queue). For parallel
+extraction, create multiple `*ExifTool` instances (each ~one interpreter's
+memory). A managed `exiftool.Pool` of N interpreters is a documented follow-up,
+not in v1.
 
 ## Out of scope for v1
 

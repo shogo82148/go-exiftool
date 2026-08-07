@@ -2,58 +2,119 @@
 
 Run [ExifTool](https://exiftool.org/) on top of
 [`goccy/go-perl`](https://github.com/goccy/go-perl) — a pure-Go build of Perl
-5.42.2 (transpiled from WebAssembly, no cgo, no external `perl`). The goal is a
-single static Go binary that extracts image metadata without shelling out to an
-installed `exiftool`.
+5.42.2 (transpiled from WebAssembly, no cgo, no external `perl`). A single static
+Go binary extracts image metadata without shelling out to an installed
+`exiftool`: ExifTool's Perl library is embedded (`go:embed`) and runs inside an
+in-process Perl interpreter.
 
-> **Status: feasibility spike.** This repo currently contains only a
-> verification program, not the finished library. Feasibility is confirmed —
-> see below.
+> **Status: working (v1, read-only).** Extraction is implemented and tested.
+> Metadata writing, an interpreter pool, and `io.Reader` streaming are not yet
+> implemented. See [DESIGN.md](DESIGN.md).
 
-## Feasibility findings (2026-07-29)
+Bundled ExifTool: **13.59**. Requires Go with `//go:embed`.
 
-ExifTool is pure Perl with core-only dependencies (Perl 5.004+), and go-perl
-ships the Perl standard library plus static XS extensions. That combination
-runs ExifTool **unmodified**:
-
-- ExifTool **13.59** boots and extracts full metadata (Exif / MakerNote / GPS /
-  IPTC) from JPEG, PNG, and TIFF — output matches native `exiftool`.
-- Interpreter boot: ~420–480 ms. Per-image extraction: ~90 ms. The interpreter
-  keeps state across `Eval` calls, so reuse one instance to pay boot cost once.
-- Pure Go: `CGO_ENABLED=0` friendly, single self-contained binary.
-
-### go-perl v0.1.0 gotcha
-
-The `perl.Config{FS: ...}` / `perl.NewStdlibMemFS()` filesystem-backend path is
-**broken in v0.1.0** (`perl_new returned 0`), even though it is the README
-example. The working approach is zero-config `perl.NewInterpreter(perl.Config{})`:
-the embedded stdlib is auto-extracted and the host `/` is visible to the guest,
-so ExifTool's `lib/` and the target image are referenced by their real host
-paths.
-
-## Running the spike
-
-```bash
-# fetch the ExifTool source (its lib/ tree and test images) once
-git clone --depth 1 https://github.com/exiftool/exiftool /tmp/exiftool
-
-# extract metadata from an image
-go run ./cmd/exiftool-spike /tmp/exiftool/lib /tmp/exiftool/t/images/Canon.jpg
-```
-
-## Planned library API
+## Usage
 
 ```go
-et, err := exiftool.New()        // boot interpreter + load embedded ExifTool lib
-defer et.Close()
-meta, err := et.Extract("photo.jpg")   // map of tag -> value
+package main
+
+import (
+	"fmt"
+	"log"
+
+	exiftool "github.com/shogo82148/go-exiftool"
+)
+
+func main() {
+	et, err := exiftool.New() // boots the interpreter, loads embedded ExifTool
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer et.Close()
+
+	f, err := et.Extract("photo.jpg")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	if t, ok := f.Get("Model"); ok {
+		fmt.Println("Camera:", t.Print)
+	}
+	if lat, ok := f.Get("GPSLatitude"); ok {
+		fmt.Println(lat.Print) // human-readable: 54 deg 59' 22.80" N
+		fmt.Println(lat.Value) // machine value
+	}
+	for _, t := range f.Tags {
+		fmt.Printf("%-10s %-24s %v\n", t.Group, t.Name, t.Print)
+	}
+}
 ```
 
-Open design questions: embedding ExifTool's `lib/` via `go:embed`; output shape
-(JSON round-trip vs. tag map); input sources (path vs. `[]byte`/`io.Reader`).
+Reuse one `*ExifTool` across many files — booting the interpreter costs a few
+hundred milliseconds, each `Extract` is fast by comparison.
+
+### API sketch
+
+```go
+func New(opts ...Option) (*ExifTool, error)
+func (e *ExifTool) Extract(path string, opts ...ExtractOption) (*Fields, error)
+func (e *ExifTool) ExtractBytes(name string, data []byte, opts ...ExtractOption) (*Fields, error)
+func (e *ExifTool) Close() error
+
+type Fields struct {
+	Path     string
+	Tags     []Tag    // every tag, in ExifTool order
+	Warnings []string
+}
+type Tag struct {
+	Group string // EXIF, GPS, IFD0, Canon, Composite, File, ...
+	Name  string
+	Value any    // machine value (ValueConv): string | float64 | bool | []any | map
+	Print string // human-readable (PrintConv)
+}
+```
+
+Helpers: `Fields.Get`, `Fields.GetGroup`, `Fields.Map`, `Fields.PrintMap`,
+`Fields.GroupMap`. Options: `WithLibDir`, `WithCharset`, `WithDateFormat`;
+per-call `Groups`, `Tags`, `Binary`, `Composite`, `Duplicates`, `ExtractEmbedded`.
+
+Each `Tag` keeps both value forms: `Value` (ExifTool's ValueConv, for
+computation) and `Print` (PrintConv, for display).
+
+## Concurrency
+
+`*ExifTool` owns one interpreter. Concurrent `Extract` calls are safe but
+serialize (go-perl's `Module.invoke` locks per interpreter). For parallel
+extraction, create multiple instances.
+
+## How it works
+
+`New` extracts the embedded ExifTool `lib/` (`perllib.zip`) to a temp dir, boots
+a go-perl interpreter with zero config (host `/` visible to the guest), and
+`require`s `Image::ExifTool`. Each `Extract` runs a small Perl program that calls
+`ExtractInfo`, collects tags as `{group, name, value, print}`, and returns them
+as JSON (via the bundled `JSON::PP`) for Go to decode.
+
+### go-perl v0.1.0 note
+
+The `perl.Config{FS: ...}` / `perl.NewStdlibMemFS()` filesystem-backend path is
+**broken in v0.1.0** (`perl_new returned 0`), even though it is that project's
+README example. This library uses zero-config `perl.NewInterpreter` instead and
+references files by real host paths.
+
+## Development
+
+```bash
+make test        # run the test suite
+make perllib     # regenerate perllib.zip from a pinned ExifTool release
+```
+
+The feasibility spike is preserved under
+[`cmd/exiftool-spike`](cmd/exiftool-spike).
 
 ## License
 
-The finished library will embed ExifTool's Perl modules and go-perl's Perl
-standard library, both of which carry Perl's dual **Artistic / GPL** license and
-require the corresponding notices. The Go code here is otherwise the author's.
+The Go code is the author's. `perllib.zip` embeds ExifTool's Perl modules and
+go-perl embeds the Perl standard library; both carry Perl's dual **Artistic /
+GPL** license, so a distributed binary should carry the corresponding notices.
+Sample images under `testdata/` are ExifTool's own test fixtures.

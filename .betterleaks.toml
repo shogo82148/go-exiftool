@@ -1,0 +1,14 @@
+# Secret-scanner config (betterleaks / gitleaks compatible).
+#
+# perllib.zip is a verbatim, code-only copy of the upstream ExifTool lib/ tree
+# (see Makefile `perllib`). The scanner unpacks it and flags a hex constant in a
+# COMMENT in Image/ExifTool/Google.pm (`# my $key = 0x2515606b4a7791cd;`) as a
+# generic API key. It is third-party source, not a credential of ours, so the
+# whole vendored archive is allowlisted.
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "vendored ExifTool source archive (third-party, no real secrets)"
+paths = ['''perllib\.zip''']

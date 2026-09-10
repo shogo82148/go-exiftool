@@ -19,6 +19,12 @@ jobs:
           - macos-latest
           - windows-latest
     runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        # Use bash on all platforms (including the Windows runner, which
+        # otherwise defaults to PowerShell and mis-parses arguments such as
+        # -coverprofile=coverage.out).
+        shell: bash
     steps:
       - name: Check out code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

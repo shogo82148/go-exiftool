@@ -13,6 +13,10 @@ in-process Perl interpreter.
 
 Bundled ExifTool: **13.59**. Requires Go with `//go:embed`.
 
+**Supported platforms:** Linux and macOS. Windows is not supported yet —
+go-perl v0.1.0 fails to initialize its interpreter there (`perl_new returned 0`),
+so it is excluded from CI.
+
 ## Usage
 
 ```go

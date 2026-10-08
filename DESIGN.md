@@ -7,12 +7,12 @@ implementation.
 
 ## Verified foundations
 
-These behaviours were verified against go-perl v0.1.0 and drive the design:
+These behaviours were verified against go-perl v0.2.0 and drive the design:
 
-1. **Zero-config interpreter only.** `perl.NewInterpreter(perl.Config{})` works;
-   the host `/` is visible to the guest, so ExifTool's `lib/` and target files
-   are referenced by real host paths. The `Config.FS` / `NewStdlibMemFS` path is
-   broken in v0.1.0 — do not use it.
+1. **Host filesystem backend.** `perl.New(perl.Config{FS: fs.NewHostFS(),
+   StdlibDir: <perl.ExtractStdlib()>})` works; the host `/` is visible to the
+   guest, so ExifTool's `lib/` and target files are referenced by real host
+   paths. (The zero Config is a sandboxed in-memory FS.)
 2. **Interpreter reuse works.** Boot once (~420 ms), `require Image::ExifTool`
    once, then run many `Extract` calls (~90 ms each) on the same interpreter —
    verified across repeated `Eval`s. Persistent state survives between calls.

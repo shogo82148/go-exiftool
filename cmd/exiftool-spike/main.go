@@ -11,20 +11,20 @@
 //
 // It prints the extracted tag/value pairs, ExifTool's version, and timings.
 //
-// Findings (go-perl v0.1.0):
-//   - Works with zero-config perl.NewInterpreter(perl.Config{}): the embedded
-//     Perl stdlib is auto-extracted and the host "/" is visible to the guest,
-//     so ExifTool's lib/ and the image are referenced by real host paths.
-//   - The perl.Config{FS: ...} / perl.NewStdlibMemFS() path is BROKEN in
-//     v0.1.0 (perl_new returns 0), even though it is the README example.
+// Findings (go-perl v0.2.0):
+//   - The zero Config is a sandboxed in-memory FS, so we pass fs.NewHostFS()
+//     plus the extracted stdlib dir; ExifTool's lib/ and the image are then
+//     referenced by real host paths.
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"time"
 
 	perl "github.com/goccy/go-perl"
+	perlfs "github.com/goccy/go-perl/fs"
 )
 
 func main() {
@@ -36,11 +36,16 @@ func main() {
 
 	start := time.Now()
 
-	// Zero config: host "/" is visible to the guest and the embedded stdlib is
-	// auto-extracted. (Config.FS / NewStdlibMemFS is broken in go-perl v0.1.0.)
-	i, err := perl.NewInterpreter(perl.Config{})
+	// Host filesystem backend: the guest sees real host paths; the embedded
+	// stdlib is extracted to a host directory and used as StdlibDir.
+	stdlib, err := perl.ExtractStdlib()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "NewInterpreter:", err)
+		fmt.Fprintln(os.Stderr, "ExtractStdlib:", err)
+		os.Exit(1)
+	}
+	i, err := perl.New(perl.Config{FS: perlfs.NewHostFS(), StdlibDir: stdlib})
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "New:", err)
 		os.Exit(1)
 	}
 	defer i.Close()
@@ -61,7 +66,7 @@ for my $tag (sort keys %%$info) {
 "OK ExifTool v" . $Image::ExifTool::VERSION;
 `, libDir, imgPath)
 
-	r, err := i.Eval(script)
+	r, err := i.Eval(context.Background(), script)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "Eval (transport):", err)
 		os.Exit(1)
@@ -73,9 +78,9 @@ for my $tag (sort keys %%$info) {
 		fmt.Print(r.Stdout)
 		fmt.Println("--------------------------")
 	}
-	if !r.Ok {
+	if r.Error != nil {
 		fmt.Printf("\nEVAL FAILED: %s\nstderr: %s\n", r.Error, r.Stderr)
 		os.Exit(1)
 	}
-	fmt.Printf("\nRESULT: %s\n", r.Result)
+	fmt.Printf("\nRESULT: %s\n", r.Value)
 }

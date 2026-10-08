@@ -20,12 +20,14 @@
 package exiftool
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 
 	perl "github.com/goccy/go-perl"
+	perlfs "github.com/goccy/go-perl/fs"
 )
 
 // ExifTool is one Perl interpreter with Image::ExifTool loaded. Reuse it across
@@ -33,7 +35,7 @@ import (
 // go-perl interpreter serializes evaluations, so concurrent Extract calls queue
 // rather than run in parallel. For real parallelism, create several instances.
 type ExifTool struct {
-	interp *perl.Interpreter
+	interp *perl.Perl
 	cfg    config
 	libDir string
 }
@@ -86,20 +88,30 @@ func New(opts ...Option) (*ExifTool, error) {
 		}
 	}
 
-	interp, err := perl.NewInterpreter(perl.Config{StdlibDir: cfg.stdlibDir})
+	// The guest sees the host filesystem so ExifTool's lib/ and the input
+	// files are referenced by real host paths.
+	stdlibDir := cfg.stdlibDir
+	if stdlibDir == "" {
+		dir, err := perl.ExtractStdlib()
+		if err != nil {
+			return nil, fmt.Errorf("extract Perl stdlib: %w", err)
+		}
+		stdlibDir = dir
+	}
+	interp, err := perl.New(perl.Config{FS: perlfs.NewHostFS(), StdlibDir: stdlibDir})
 	if err != nil {
 		return nil, fmt.Errorf("start Perl interpreter: %w", err)
 	}
 
 	et := &ExifTool{interp: interp, cfg: cfg, libDir: libDir}
-	r, err := interp.Eval(buildBootScript(libDir))
+	r, err := interp.Eval(context.Background(), buildBootScript(libDir))
 	if err != nil {
 		interp.Close()
 		return nil, fmt.Errorf("load Image::ExifTool: %w", err)
 	}
-	if !r.Ok {
+	if r.Error != nil {
 		interp.Close()
-		return nil, fmt.Errorf("load Image::ExifTool: %s", strings.TrimSpace(r.Error))
+		return nil, fmt.Errorf("load Image::ExifTool: %s", strings.TrimSpace(r.Error.Error()))
 	}
 	return et, nil
 }
@@ -157,12 +169,12 @@ func (e *ExifTool) extract(hostPath, reportPath string, opts []ExtractOption) (*
 		o(&eo)
 	}
 	script := buildExtractScript(e.optionsList(eo), hostPath)
-	r, err := e.interp.Eval(script)
+	r, err := e.interp.Eval(context.Background(), script)
 	if err != nil {
 		return nil, fmt.Errorf("exiftool: interpreter error: %w", err)
 	}
-	if !r.Ok {
-		return nil, fmt.Errorf("exiftool: %s", strings.TrimSpace(r.Error))
+	if r.Error != nil {
+		return nil, fmt.Errorf("exiftool: %s", strings.TrimSpace(r.Error.Error()))
 	}
 	f, err := decodeResult(reportPath, r.Stdout)
 	if err != nil {

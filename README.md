@@ -93,7 +93,7 @@ extraction, create multiple instances.
 ## How it works
 
 `New` extracts the embedded ExifTool `lib/` (`perllib.zip`) to a temp dir, boots
-a go-perl interpreter with zero config (host `/` visible to the guest), and
+a go-perl interpreter with `fs.NewHostFS()` and the extracted stdlib as `StdlibDir` (host `/` visible to the guest), and
 `require`s `Image::ExifTool`. Each `Extract` runs a small Perl program that calls
 `ExtractInfo`, collects tags as `{group, name, value, print}`, and returns them
 as JSON (via the bundled `JSON::PP`) for Go to decode.

@@ -14,8 +14,7 @@ in-process Perl interpreter.
 Bundled ExifTool: **13.59**. Requires Go with `//go:embed`.
 
 **Supported platforms:** Linux and macOS. Windows is not supported yet —
-go-perl v0.1.0 fails to initialize its interpreter there (`perl_new returned 0`),
-so it is excluded from CI.
+go-perl does not support it, so it is excluded from CI.
 
 ## Usage
 
@@ -94,17 +93,17 @@ extraction, create multiple instances.
 ## How it works
 
 `New` extracts the embedded ExifTool `lib/` (`perllib.zip`) to a temp dir, boots
-a go-perl interpreter with zero config (host `/` visible to the guest), and
+a go-perl interpreter with `fs.NewHostFS()` and the extracted stdlib as `StdlibDir` (host `/` visible to the guest), and
 `require`s `Image::ExifTool`. Each `Extract` runs a small Perl program that calls
 `ExtractInfo`, collects tags as `{group, name, value, print}`, and returns them
 as JSON (via the bundled `JSON::PP`) for Go to decode.
 
-### go-perl v0.1.0 note
+### go-perl v0.2.0 note
 
-The `perl.Config{FS: ...}` / `perl.NewStdlibMemFS()` filesystem-backend path is
-**broken in v0.1.0** (`perl_new returned 0`), even though it is that project's
-README example. This library uses zero-config `perl.NewInterpreter` instead and
-references files by real host paths.
+go-perl's zero `Config` is a sandboxed in-memory filesystem. This library
+instead passes `fs.NewHostFS()` with the extracted stdlib directory as
+`StdlibDir`, so ExifTool's `lib/` and input files are referenced by real host
+paths.
 
 ## Development
 
